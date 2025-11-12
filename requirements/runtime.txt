@@ -1,0 +1,7 @@
+-r base.txt
+onnx>=1.15.0
+onnxruntime-gpu>=1.16.0
+tensorrt>=8.6.0
+pycuda>=2024.1
+fastapi>=0.110.0
+uvicorn>=0.27.0
