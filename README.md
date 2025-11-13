@@ -8,7 +8,7 @@ The steps below assume a RunPod template with Ubuntu + CUDA 12.x. All commands r
 
 ```bash
 cd /workspace
-git clone https://github.com/rng-803/surgseg-SAM2.git
+git clone https://github.com/<your-user>/surgseg_SAM2.git
 cd surgseg_SAM2
 python3 -m venv .venv
 source .venv/bin/activate
@@ -102,7 +102,6 @@ Use `--train-size 736` or similar if you want to resize to fit memory; otherwise
 
 ### 6. Common pitfalls
 
-
 - **Missing priors:** If `sam2_prior/logits` is empty, the loader falls back to mask-derived one-hots, so confirm priors exist before training.  
 - **Path mismatches:** Every entry in `data/dataset.jsonl` is resolved relative to `--project-root` (default `.`). Keep the repo root consistent or override the flag.  
 - **CUDA wheel conflicts:** RunPod images sometimes ship older torch wheels; re-installing via `pip install -r requirements.txt` inside the venv ensures torch/torchvision match.
@@ -116,3 +115,38 @@ Use `--train-size 736` or similar if you want to resize to fit memory; otherwise
   ```
 
   Adjust `class_map.json` to map each raw color/intensity to your target label IDs. The `scripts/run_preprocessing.py` helper will standardize masks, rebuild `data/dataset.jsonl`, and regenerate prompts in one go if you prefer a single command.
+
+### 7. Streaming inference (single frame or video)
+
+Once you have a trained refiner checkpoint and a SAM2 checkpoint, you can run end-to-end inference directly on frames or MP4s. The first frame needs prompts (same JSON format as the training prompts); subsequent frames auto-seed prompts from the previous refined mask.
+
+**Single frame**
+
+```bash
+python -m runtime.stream_infer \
+  --sam2-ckpt checkpoints/sam2/sam2_hiera_tiny.pt \
+  --sam2-config configs/sam2/sam2_hiera_t.yaml \
+  --refiner-ckpt refiner/checkpoints/refiner_epoch_030.pt \
+  --frame-path dataset/images/video_1__0005.jpg \
+  --init-prompts data/prompts/video_1__0005.prompts.json \
+  --output runtime/frame_0005_mask.png \
+  --num-classes 3 \
+  --device cuda
+```
+
+**Video (MP4)**
+
+```bash
+python -m runtime.stream_infer \
+  --sam2-ckpt checkpoints/sam2/sam2_hiera_tiny.pt \
+  --sam2-config configs/sam2/sam2_hiera_t.yaml \
+  --refiner-ckpt refiner/checkpoints/refiner_epoch_030.pt \
+  --video-path input.mp4 \
+  --init-prompts data/prompts/video_1__0005.prompts.json \
+  --output-video runtime/output.mp4 \
+  --output-dir runtime/mask_frames \
+  --num-classes 3 \
+  --device cuda
+```
+
+The script writes a colorized mask video (and optional per-frame PNGs). It uses the provided prompts for the first frame, then automatically derives bounding boxes/centroids from each refined mask to keep SAM2 prompted for each subsequent frame.
