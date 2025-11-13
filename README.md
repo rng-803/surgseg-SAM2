@@ -8,7 +8,7 @@ The steps below assume a RunPod template with Ubuntu + CUDA 12.x. All commands r
 
 ```bash
 cd /workspace
-git clone https://github.com/<your-user>/surgseg_SAM2.git
+git clone https://github.com/rng-803/surgseg-SAM2.git
 cd surgseg_SAM2
 python3 -m venv .venv
 source .venv/bin/activate
