@@ -102,6 +102,17 @@ Use `--train-size 736` or similar if you want to resize to fit memory; otherwise
 
 ### 6. Common pitfalls
 
+
 - **Missing priors:** If `sam2_prior/logits` is empty, the loader falls back to mask-derived one-hots, so confirm priors exist before training.  
 - **Path mismatches:** Every entry in `data/dataset.jsonl` is resolved relative to `--project-root` (default `.`). Keep the repo root consistent or override the flag.  
 - **CUDA wheel conflicts:** RunPod images sometimes ship older torch wheels; re-installing via `pip install -r requirements.txt` inside the venv ensures torch/torchvision match.
+- **Mask preprocessing:** Raw PNG masks from many tools use RGB colors (e.g., 0/51/102) rather than contiguous IDs. Before training or generating priors, run the standardization script (or the full `scripts/run_preprocessing.py` pipeline) to convert them into single-channel `{0..C}` maps:
+
+  ```bash
+  python -m scripts.standardize_masks \
+    --input-dir dataset/masks_raw \
+    --output-dir data/masks \
+    --class-map configs/class_map.json
+  ```
+
+  Adjust `class_map.json` to map each raw color/intensity to your target label IDs. The `scripts/run_preprocessing.py` helper will standardize masks, rebuild `data/dataset.jsonl`, and regenerate prompts in one go if you prefer a single command.
