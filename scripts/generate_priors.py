@@ -67,17 +67,44 @@ def _mask_to_prior(mask: np.ndarray, num_classes: int, blur_sigma: float) -> np.
 class Sam2ModuleRunner:
     """Bridge to a user-provided SAM2 helper module."""
 
-    def __init__(self, module_path: str, checkpoint: Path, device: str):
+    def __init__(
+        self,
+        module_path: str,
+        checkpoint: Path | None,
+        device: str,
+        num_classes: int,
+        config_path: str | None,
+        model_id: str | None,
+        apply_postprocessing: bool,
+        mask_threshold: float,
+        max_hole_area: float,
+        max_sprinkle_area: float,
+    ):
         module = importlib.import_module(module_path)
         if not hasattr(module, "build_predictor") or not hasattr(module, "predict"):
             raise AttributeError(
                 f"{module_path} must define `build_predictor` and `predict` functions"
             )
         self.module = module
-        self.predictor = module.build_predictor(checkpoint=checkpoint, device=device)
+        self.predictor = module.build_predictor(
+            checkpoint=checkpoint,
+            device=device,
+            config_path=config_path,
+            model_id=model_id,
+            apply_postprocessing=apply_postprocessing,
+            mask_threshold=mask_threshold,
+            max_hole_area=max_hole_area,
+            max_sprinkle_area=max_sprinkle_area,
+        )
+        self.num_classes = num_classes
 
     def __call__(self, image: np.ndarray, prompts: Dict[str, Any]) -> np.ndarray:
-        logits = self.module.predict(self.predictor, image=image, prompts=prompts)
+        logits = self.module.predict(
+            self.predictor,
+            image=image,
+            prompts=prompts,
+            num_classes=self.num_classes,
+        )
         return np.asarray(logits, dtype=np.float32)
 
 
@@ -90,9 +117,22 @@ def generate_priors(args: argparse.Namespace) -> None:
 
     runner = None
     if args.mode == "sam2":
-        if not args.sam2_module or not args.sam2_checkpoint:
-            raise ValueError("`--sam2-module` and `--sam2-checkpoint` are required for mode=sam2")
-        runner = Sam2ModuleRunner(args.sam2_module, args.sam2_checkpoint, args.device)
+        if not args.sam2_module:
+            raise ValueError("`--sam2-module` is required for mode=sam2")
+        if not args.sam2_model_id and args.sam2_checkpoint is None:
+            raise ValueError("Provide either --sam2-model-id or --sam2-checkpoint for mode=sam2")
+        runner = Sam2ModuleRunner(
+            module_path=args.sam2_module,
+            checkpoint=args.sam2_checkpoint,
+            device=args.device,
+            num_classes=args.num_classes,
+            config_path=args.sam2_config,
+            model_id=args.sam2_model_id,
+            apply_postprocessing=not args.disable_sam2_postprocess,
+            mask_threshold=args.sam2_mask_threshold,
+            max_hole_area=args.sam2_max_hole_area,
+            max_sprinkle_area=args.sam2_max_sprinkle_area,
+        )
 
     written = 0
     skipped = 0
@@ -132,8 +172,14 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--output-dir", type=Path, default=Path("sam2_prior/logits"))
     parser.add_argument("--num-classes", type=int, default=3)
     parser.add_argument("--mode", choices=["mock", "sam2"], default="mock")
-    parser.add_argument("--sam2-module", type=str, default=None)
+    parser.add_argument("--sam2-module", type=str, default="runtime.sam2_helper")
     parser.add_argument("--sam2-checkpoint", type=Path, default=None)
+    parser.add_argument("--sam2-config", type=str, default=None, help="Hydra config for SAM2 (e.g., configs/sam2/sam2_hiera_t.yaml)")
+    parser.add_argument("--sam2-model-id", type=str, default=None, help="Optional Hugging Face model id (overrides checkpoint/config)")
+    parser.add_argument("--disable-sam2-postprocess", action="store_true")
+    parser.add_argument("--sam2-mask-threshold", type=float, default=0.0)
+    parser.add_argument("--sam2-max-hole-area", type=float, default=0.0)
+    parser.add_argument("--sam2-max-sprinkle-area", type=float, default=0.0)
     parser.add_argument("--device", type=str, default="cuda")
     parser.add_argument("--blur-sigma", type=float, default=1.5, help="Gaussian smoothing for mock priors")
     parser.add_argument("--log-level", type=str, default="INFO", choices=["CRITICAL", "ERROR", "WARNING", "INFO", "DEBUG"])
