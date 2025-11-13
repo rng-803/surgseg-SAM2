@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import logging
 import math
 from pathlib import Path
 from typing import Dict, List, Optional
@@ -17,6 +18,8 @@ from torch.utils.data import DataLoader, Dataset, random_split
 from torchvision import transforms
 
 from refiner.models import TinyRefiner, TinyRefinerConfig
+
+LOGGER = logging.getLogger("refiner.train")
 
 IMAGENET_MEAN = [0.485, 0.456, 0.406]
 IMAGENET_STD = [0.229, 0.224, 0.225]
@@ -62,6 +65,21 @@ class RefinerDataset(Dataset):
         image = Image.open(self.project_root / rel_path).convert("RGB")
         return self.to_tensor(image)
 
+    def _sanitize_mask(self, mask: torch.Tensor, rel_path: str) -> torch.Tensor:
+        max_label = int(mask.max().item()) if mask.numel() else 0
+        min_label = int(mask.min().item()) if mask.numel() else 0
+        if max_label >= self.num_classes or min_label < 0:
+            sanitized = mask.clamp(0, self.num_classes - 1)
+            LOGGER.warning(
+                "Mask %s had labels outside [0, %d]; clipped them (min=%d, max=%d)",
+                rel_path,
+                self.num_classes - 1,
+                min_label,
+                max_label,
+            )
+            return sanitized
+        return mask
+
     def _load_mask(self, rel_path: str) -> torch.Tensor:
         mask = Image.open(self.project_root / rel_path)
         if self.input_size is not None:
@@ -69,7 +87,8 @@ class RefinerDataset(Dataset):
         arr = np.array(mask, dtype=np.int64)
         if arr.ndim == 3:
             arr = arr[..., 0]
-        return torch.from_numpy(arr)
+        tensor = torch.from_numpy(arr)
+        return self._sanitize_mask(tensor, rel_path)
 
     def _load_prior(self, image_rel_path: str, mask_tensor: torch.Tensor) -> torch.Tensor:
         if self.priors_dir is None:
